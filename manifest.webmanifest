@@ -1,6 +1,6 @@
 {
-  "name": "習慣トラッカー",
-  "short_name": "習慣",
+  "name": "HaBiTa - 習慣トラッカー",
+  "short_name": "HaBiTa",
   "description": "毎日の習慣を記録して、連続記録を伸ばすシンプルなアプリ",
   "lang": "ja",
   "start_url": "./",
