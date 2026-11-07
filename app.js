@@ -7,7 +7,7 @@
 
 const STORAGE_KEY = 'habit-tracker:v1';
 const INSTALL_DISMISSED_KEY = 'habit-tracker:install-dismissed';
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 
 const COLORS = ['#34c759', '#30b0c7', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#ff3b30', '#ff9500', '#ffcc00', '#a2845e'];
 const EMOJIS = ['💧', '🏃', '🚶', '📚', '🧘', '💪', '🛏️', '🌅', '🥗', '🍎', '✍️', '🧠', '🎸', '🎨', '🧹', '💊', '🦷', '📵', '💰', '🌱', '☕', '🚭', '🙏', '🎯'];
@@ -34,6 +34,16 @@ const TEMPLATES = {
     fields: [{ name: '種目', type: 'text' }, { name: '回数', type: 'number', unit: '回' }, { name: 'セット', type: 'number', unit: 'セット' }],
   },
 };
+/** 日記の気分（5段階） */
+const MOODS = [
+  { v: 5, e: '😄', label: '最高' },
+  { v: 4, e: '🙂', label: '良い' },
+  { v: 3, e: '😐', label: 'ふつう' },
+  { v: 2, e: '😕', label: 'いまいち' },
+  { v: 1, e: '😢', label: 'つらい' },
+];
+const moodOf = (v) => MOODS.find((m) => m.v === v);
+
 const fieldsFromTemplate = (key) => (TEMPLATES[key]?.fields || []).map((f) => ({ id: uid(), unit: '', ...f }));
 
 const SUGGESTIONS = [
@@ -82,6 +92,8 @@ const ui = {
   selected: todayKey(),
   today: todayKey(),
   sheet: null,          // { type: 'detail' | 'edit' | 'entry', ... }
+  calMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1), // カレンダータブの表示月
+  calSel: todayKey(),   // カレンダータブで選択中の日
 };
 
 function load() {
@@ -89,10 +101,23 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      if (s && Array.isArray(s.habits)) return { version: 1, habits: s.habits.map(normalizeHabit).filter(Boolean) };
+      if (s && Array.isArray(s.habits)) return { version: 1, habits: s.habits.map(normalizeHabit).filter(Boolean), diary: normalizeDiary(s.diary) };
     }
   } catch (e) { /* 破損データは無視 */ }
-  return { version: 1, habits: [] };
+  return { version: 1, habits: [], diary: {} };
+}
+
+/** 日記: { 'YYYY-MM-DD': { mood: 1〜5, note: '一言' } } */
+function normalizeDiary(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object') return out;
+  for (const [k, v] of Object.entries(obj)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(k) || !v || typeof v !== 'object') continue;
+    const mood = Number.isInteger(v.mood) && v.mood >= 1 && v.mood <= 5 ? v.mood : undefined;
+    const note = typeof v.note === 'string' ? v.note.slice(0, 100) : '';
+    if (mood || note) out[k] = { ...(mood ? { mood } : {}), ...(note ? { note } : {}) };
+  }
+  return out;
 }
 
 function save() {
@@ -359,10 +384,10 @@ function habitItem(h, k) {
         ${sub ? `<div class="habit-sub">${esc(sub)}</div>` : ''}
       </span>
     </button>
-    ${h.target > 1 && n > 0 && !running ? `<button class="minus" data-action="minus" data-id="${h.id}" aria-label="1回減らす">−</button>` : ''}
+    ${h.target > 1 && n > 0 && !running ? `<button class="minus" data-action="minus" data-id="${h.id}" data-key="${k}" aria-label="1回減らす">−</button>` : ''}
     ${showTimer ? `<button class="timer-btn ${running ? 'on' : ''}" data-action="${running ? 'timer-stop' : 'timer-start'}" data-id="${h.id}"
       aria-label="${esc(h.name)} の${running ? 'タイマーを止めて記録' : 'タイマーをスタート'}">${running ? STOP_SVG : PLAY_SVG}</button>` : ''}
-    <button class="check" data-action="toggle" data-id="${h.id}"
+    <button class="check" data-action="toggle" data-id="${h.id}" data-key="${k}"
       aria-label="${esc(h.name)} を${done ? '未完了に戻す' : hasFields(h) ? '記録する' : h.target > 1 ? '1回記録' : '完了にする'}" aria-pressed="${done}">${checkInner}</button>
   </li>`;
 }
@@ -432,6 +457,7 @@ function renderToday() {
         <p class="small">${due.length ? `${done} / ${due.length} 完了` : 'ゆっくり休みましょう'}</p>
       </div>
     </div>
+    ${diaryCard(ui.selected)}
     ${due.length ? `<h2>${isToday ? '今日やること' : 'この日の習慣'}</h2><ul class="list">${due.map((h) => habitItem(h, ui.selected)).join('')}</ul>` : ''}
     ${rest.length ? `<h2>予定なしの日</h2><ul class="list rest">${rest.map((h) => habitItem(h, ui.selected)).join('')}</ul>` : ''}
   `;
@@ -444,6 +470,104 @@ function header(eyebrow, title, withAdd, extra = '') {
       ${withAdd ? `<button class="icon-btn" data-action="add" aria-label="習慣を追加">${PLUS_SVG}</button>` : ''}
     </div>
   </header>`;
+}
+
+/* ---------- 日記（気分と一言） ---------- */
+function diaryCard(k) {
+  if (k > ui.today) return '';
+  const d = state.diary[k] || {};
+  const isToday = k === ui.today;
+  return `<div class="diary card">
+    <p class="diary-q">${isToday ? '今日の気分は？' : 'この日の気分'}</p>
+    <div class="mood-row" role="radiogroup" aria-label="気分">
+      ${MOODS.map((m) => `<button class="mood ${d.mood === m.v ? 'sel' : ''}" data-action="mood" data-key="${k}" data-mood="${m.v}"
+        role="radio" aria-checked="${d.mood === m.v}" aria-label="${m.label}"><span>${m.e}</span><small>${m.label}</small></button>`).join('')}
+    </div>
+    <input class="in diary-note" data-key="${k}" maxlength="100" value="${esc(d.note || '')}"
+      placeholder="${isToday ? '今日の一言（なくてもOK）' : '一言（なくてもOK）'}" enterkeyhint="done" autocomplete="off" aria-label="一言日記">
+  </div>`;
+}
+
+function setMood(k, v) {
+  const cur = state.diary[k] || {};
+  const next = { ...cur };
+  if (cur.mood === v) delete next.mood; else next.mood = v; // 同じ顔をもう一度タップで解除
+  if (next.mood || next.note) state.diary[k] = next; else delete state.diary[k];
+  save();
+  render();
+}
+
+let noteTimer;
+function setNote(k, text) {
+  const cur = state.diary[k] || {};
+  const next = { ...cur, note: text.slice(0, 100) };
+  if (!next.note) delete next.note;
+  if (next.mood || next.note) state.diary[k] = next; else delete state.diary[k];
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(save, 400);
+}
+
+/* ---------- 画面: カレンダー ---------- */
+function renderCalendar() {
+  const m = ui.calMonth;
+  const today = startOfToday();
+  const first = new Date(m.getFullYear(), m.getMonth(), 1);
+  const daysInMonth = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+  const isCurrentMonth = m.getFullYear() === today.getFullYear() && m.getMonth() === today.getMonth();
+
+  let cells = WD.map((w, i) => `<span class="wdh ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</span>`).join('');
+  for (let i = 0; i < first.getDay(); i++) cells += '<span></span>';
+  const moodCount = {};
+  let diaryDays = 0, perfectDays = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(m.getFullYear(), m.getMonth(), day);
+    const k = keyOf(d);
+    const future = d > today;
+    const { due, done } = dayProgress(d);
+    const ratio = due ? done / due : 0;
+    const diary = state.diary[k];
+    if (diary) diaryDays++;
+    if (diary && diary.mood) moodCount[diary.mood] = (moodCount[diary.mood] || 0) + 1;
+    if (!future && due && done === due) perfectDays++;
+    const cls = ['mday', k === ui.calSel ? 'sel' : '', k === ui.today ? 'today' : '', future ? 'fut' : '', due && done === due ? 'all' : ''].join(' ');
+    const mood = diary && diary.mood ? moodOf(diary.mood).e : '';
+    cells += `<button class="${cls}" style="--r:${(ratio * 100).toFixed(0)}%" data-action="mcal-day" data-key="${k}" ${future ? 'disabled' : ''}
+      aria-label="${fmtDate(d)} ${due ? `${done}/${due}完了` : ''} ${mood ? moodOf(diary.mood).label : ''}">
+      <b>${day}</b><span class="mood-mini">${mood || (diary && diary.note ? '✎' : '')}</span>
+      ${due && !future ? `<i class="bar"><i style="width:${(ratio * 100).toFixed(0)}%"></i></i>` : ''}
+    </button>`;
+  }
+
+  const moodSummary = MOODS.filter((x) => moodCount[x.v]).map((x) => `<span>${x.e} <b>${moodCount[x.v]}</b></span>`).join('');
+  const sel = ui.calSel <= ui.today ? ui.calSel : ui.today;
+  return `${header('日々の記録と日記', 'カレンダー', false, isCurrentMonth && ui.calSel === ui.today ? '' : '<button class="link-btn" data-action="mcal-today">今日</button>')}
+    <div class="card mcal">
+      <div class="cal-head">
+        <button data-action="mcal-prev" aria-label="前の月">‹</button>
+        <b>${m.getFullYear()}年${m.getMonth() + 1}月</b>
+        <button data-action="mcal-next" aria-label="次の月" ${isCurrentMonth ? 'disabled' : ''}>›</button>
+      </div>
+      <div class="mcal-grid">${cells}</div>
+      <div class="mcal-foot">
+        <span>全部達成 <b>${perfectDays}</b>日</span>
+        <span>日記 <b>${diaryDays}</b>日</span>
+        ${moodSummary ? `<span class="moods">${moodSummary}</span>` : ''}
+      </div>
+    </div>
+    ${renderDay(sel)}`;
+}
+
+/** カレンダーで選んだ日の日記と習慣 */
+function renderDay(k) {
+  const d = parseKey(k);
+  const due = state.habits.filter((h) => dueOn(h, d));
+  const others = state.habits.filter((h) => !dueOn(h, d) && (countOn(h, k) > 0 || entriesOn(h, k).length));
+  const done = due.filter((h) => isDone(h, k)).length;
+  return `<h2 class="day-title">${d.getFullYear()}年${fmtDate(d)}${k === ui.today ? '（今日）' : ''}</h2>
+    ${diaryCard(k)}
+    ${due.length ? `<h2>習慣 ${done} / ${due.length} 完了</h2><ul class="list">${due.map((h) => habitItem(h, k)).join('')}</ul>` : ''}
+    ${others.length ? `<h2>予定外に実行</h2><ul class="list">${others.map((h) => habitItem(h, k)).join('')}</ul>` : ''}
+    ${!due.length && !others.length ? `<p class="note" style="text-align:center;margin-top:16px">${state.habits.length ? 'この日の予定はありません' : '習慣を追加すると、ここに記録が表示されます'}</p>` : ''}`;
 }
 
 /* ---------- 画面: 記録 ---------- */
@@ -521,6 +645,7 @@ function renderSettings() {
     <div class="card group">
       <div class="row"><span>習慣の数</span><span class="val">${state.habits.length}</span></div>
       <div class="row"><span>達成した記録の合計</span><span class="val">${totalLogs}回</span></div>
+      <div class="row"><span>日記を書いた日</span><span class="val">${Object.keys(state.diary).length}日</span></div>
       <button class="row" data-action="export"><span>バックアップを書き出す</span><span class="val">›</span></button>
       <button class="row" data-action="import"><span>バックアップから復元</span><span class="val">›</span></button>
     </div>
@@ -537,6 +662,7 @@ function renderSettings() {
 function render() {
   const view = $('#view');
   if (ui.tab === 'today') view.innerHTML = renderToday();
+  else if (ui.tab === 'calendar') view.innerHTML = renderCalendar();
   else if (ui.tab === 'stats') view.innerHTML = renderStats();
   else view.innerHTML = renderSettings();
   document.querySelectorAll('.tab').forEach((t) => {
@@ -1050,10 +1176,9 @@ function tapHabit(id, k = ui.selected) {
   }
 }
 
-function minusHabit(id) {
+function minusHabit(id, k = ui.selected) {
   const h = findHabit(id);
   if (!h) return;
-  const k = ui.selected;
   const n = countOn(h, k) - 1;
   setCount(h, k, n);
   const list = entriesOn(h, k);
@@ -1098,7 +1223,7 @@ function quickAdd(i) {
 }
 
 async function exportData() {
-  const data = JSON.stringify({ app: 'habit-tracker', version: 1, exportedAt: new Date().toISOString(), habits: state.habits }, null, 2);
+  const data = JSON.stringify({ app: 'habit-tracker', version: 1, exportedAt: new Date().toISOString(), habits: state.habits, diary: state.diary }, null, 2);
   const name = `habita-backup-${todayKey()}.json`;
   try {
     const file = new File([data], name, { type: 'application/json' });
@@ -1123,9 +1248,9 @@ function importData(file) {
     try {
       const obj = JSON.parse(reader.result);
       const habits = (Array.isArray(obj) ? obj : obj.habits || []).map(normalizeHabit).filter(Boolean);
-      if (!habits.length) throw new Error('empty');
-      if (!confirm(`${habits.length}件の習慣を復元します。\n現在のデータは置き換えられます。よろしいですか？`)) return;
-      state = { version: 1, habits };
+      if (!habits.length && !Object.keys(normalizeDiary(obj.diary)).length) throw new Error('empty');
+      if (!confirm(`${habits.length}件の習慣と日記を復元します。\n現在のデータは置き換えられます。よろしいですか？`)) return;
+      state = { version: 1, habits, diary: normalizeDiary(obj.diary) };
       save();
       render();
       toast('復元しました');
@@ -1138,7 +1263,7 @@ function importData(file) {
 
 function resetAll() {
   if (!confirm('すべての習慣と記録を削除します。\nこの操作は取り消せません。よろしいですか？')) return;
-  state = { version: 1, habits: [] };
+  state = { version: 1, habits: [], diary: {} };
   save();
   render();
   toast('すべてのデータを削除しました');
@@ -1194,8 +1319,28 @@ document.addEventListener('click', (e) => {
   switch (action) {
     case 'add': openEdit(null); break;
     case 'quick-add': quickAdd(Number(el.dataset.index)); break;
-    case 'toggle': tapHabit(id); break;
-    case 'minus': minusHabit(id); break;
+    case 'toggle': tapHabit(id, el.dataset.key); break;
+    case 'minus': minusHabit(id, el.dataset.key); break;
+    case 'mood': setMood(el.dataset.key, Number(el.dataset.mood)); break;
+    case 'mcal-prev':
+    case 'mcal-next': {
+      const m = ui.calMonth;
+      ui.calMonth = new Date(m.getFullYear(), m.getMonth() + (action === 'mcal-prev' ? -1 : 1), 1);
+      render();
+      break;
+    }
+    case 'mcal-today': {
+      const t = startOfToday();
+      ui.calMonth = new Date(t.getFullYear(), t.getMonth(), 1);
+      ui.calSel = ui.today;
+      render();
+      break;
+    }
+    case 'mcal-day':
+      ui.calSel = el.dataset.key;
+      render();
+      $('.day-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); // 選んだ日の日記・記録を見せる
+      break;
     case 'detail': openDetail(id); break;
     case 'select-day': ui.selected = el.dataset.key; render(); break;
     case 'go-today': ui.selected = ui.today; render(); break;
@@ -1239,6 +1384,7 @@ document.addEventListener('submit', (e) => {
 
 // 記録項目エディタの入力を下書きに反映
 document.addEventListener('input', (e) => {
+  if (e.target.classList.contains('diary-note')) { setNote(e.target.dataset.key, e.target.value); return; }
   const d = ui.sheet && ui.sheet.type === 'edit' ? ui.sheet.draft : null;
   if (!d) return;
   const t = e.target;
@@ -1247,6 +1393,7 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('diary-note')) { clearTimeout(noteTimer); save(); return; }
   if (e.target.id === 'import-file' && e.target.files[0]) {
     importData(e.target.files[0]);
     e.target.value = '';
@@ -1290,6 +1437,7 @@ function checkDayChange() {
   const k = todayKey();
   if (k === ui.today) return;
   if (ui.selected === ui.today) ui.selected = k;
+  if (ui.calSel === ui.today) ui.calSel = k;
   ui.today = k;
   render();
 }
