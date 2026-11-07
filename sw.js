@@ -1,6 +1,6 @@
 // オフライン対応用 Service Worker
 // アプリを更新したら CACHE のバージョンを上げてください。
-const CACHE = 'habit-tracker-v1';
+const CACHE = 'habit-tracker-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,8 @@ const ASSETS = [
   './icons/apple-touch-icon.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/favicon-32.png',
+  './icons/logo.svg',
 ];
 
 self.addEventListener('install', (event) => {
