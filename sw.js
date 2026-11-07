@@ -1,6 +1,6 @@
 // オフライン対応用 Service Worker
 // アプリを更新したら CACHE のバージョンを上げてください。
-const CACHE = 'habita-v3';
+const CACHE = 'habita-v5';
 const ASSETS = [
   './',
   './index.html',
