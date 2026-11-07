@@ -1,6 +1,6 @@
 // オフライン対応用 Service Worker
 // アプリを更新したら CACHE のバージョンを上げてください。
-const CACHE = 'habit-tracker-v2';
+const CACHE = 'habita-v3';
 const ASSETS = [
   './',
   './index.html',

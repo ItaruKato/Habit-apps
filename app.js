@@ -1,13 +1,13 @@
 'use strict';
 
 /* =========================================================
- * 習慣トラッカー — iPhone 向け PWA
+ * HaBiTa — iPhone 向け習慣トラッカー PWA
  * データはすべて端末内 (localStorage) に保存されます。
  * ========================================================= */
 
 const STORAGE_KEY = 'habit-tracker:v1';
 const INSTALL_DISMISSED_KEY = 'habit-tracker:install-dismissed';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 const COLORS = ['#34c759', '#30b0c7', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#ff3b30', '#ff9500', '#ffcc00', '#a2845e'];
 const EMOJIS = ['💧', '🏃', '🚶', '📚', '🧘', '💪', '🛏️', '🌅', '🥗', '🍎', '✍️', '🧠', '🎸', '🎨', '🧹', '💊', '🦷', '📵', '💰', '🌱', '☕', '🚭', '🙏', '🎯'];
@@ -368,7 +368,7 @@ function renderSettings() {
     <div class="card group">
       <button class="row danger-btn" data-action="reset"><span>すべてのデータを削除</span></button>
     </div>
-    <p class="note" style="text-align:center;margin-top:24px">習慣トラッカー v${APP_VERSION}</p>
+    <p class="note" style="text-align:center;margin-top:24px">HaBiTa v${APP_VERSION}</p>
     <input type="file" id="import-file" accept="application/json,.json" hidden>`;
 }
 
@@ -658,11 +658,11 @@ function quickAdd(i) {
 
 async function exportData() {
   const data = JSON.stringify({ app: 'habit-tracker', version: 1, exportedAt: new Date().toISOString(), habits: state.habits }, null, 2);
-  const name = `habits-backup-${todayKey()}.json`;
+  const name = `habita-backup-${todayKey()}.json`;
   try {
     const file = new File([data], name, { type: 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: '習慣トラッカーのバックアップ' });
+      await navigator.share({ files: [file], title: 'HaBiTa のバックアップ' });
       return;
     }
   } catch (e) {
